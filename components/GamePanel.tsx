@@ -12,6 +12,7 @@ import type { ActivityLogEntry, SlotSymbol } from '@/types'
 
 type GamePanelProps = {
   addLog: (entry: Omit<ActivityLogEntry, 'id' | 'timestamp'>) => void
+  onRefreshBalance?: () => void
 }
 
 type PaymentChallenge = {
@@ -68,15 +69,15 @@ function getAccessKeyStorage(address: string): AccessKeyStorage | null {
   }
 }
 
-export function GamePanel({ addLog }: GamePanelProps) {
+export function GamePanel({ addLog, onRefreshBalance }: GamePanelProps) {
   const { address, isConnected } = useAccount()
   const [mounted, setMounted] = useState(false)
-  const [balance, setBalance] = useState(0)
   const [isSpinning, setIsSpinning] = useState(false)
   const [lastWin, setLastWin] = useState<boolean | null>(null)
   const [combination, setCombination] = useState<[SlotSymbol, SlotSymbol, SlotSymbol] | null>(null)
   const [showConfetti, setShowConfetti] = useState(false)
   const [confettiKey, setConfettiKey] = useState(0)
+  const [depositedBalance, setDepositedBalance] = useState(0)
 
   useEffect(() => {
     setMounted(true)
@@ -93,8 +94,14 @@ export function GamePanel({ addLog }: GamePanelProps) {
     setShowConfetti(false)
   }, [lastWin])
 
+  useEffect(() => {
+    if (!isConnected) {
+      setDepositedBalance(0)
+    }
+  }, [isConnected])
+
   const handleSpin = async () => {
-    if (!address || balance < 1 || isSpinning) return
+    if (!address || depositedBalance < 1 || isSpinning) return
 
     setIsSpinning(true)
     setLastWin(null)
@@ -122,7 +129,7 @@ export function GamePanel({ addLog }: GamePanelProps) {
         addLog({
           type: 'payment',
           message: '402 Payment Required - preparing payment credential',
-              details: challenge
+          details: challenge
             ? {
                 challengeHeader: `WWW-Authenticate: Payment id="${challenge.id}", realm="${challenge.realm}", method="${challenge.method}", intent="${challenge.intent}", request="${challenge.request}"`,
                 challengeId: challenge.id,
@@ -135,7 +142,6 @@ export function GamePanel({ addLog }: GamePanelProps) {
                 signedMessage: createPaymentMessage(challenge),
               }
             : undefined,
-
         })
 
         if (!challenge) {
@@ -198,6 +204,7 @@ export function GamePanel({ addLog }: GamePanelProps) {
         const errorBody = await activeResponse.json().catch(() => null)
         if (activeResponse.status === 401) {
           if (errorBody?.message === 'Access key balance depleted') {
+            setDepositedBalance(0)
             addLog({
               type: 'payment',
               message: 'Balance depleted — add funds to continue.',
@@ -217,28 +224,33 @@ export function GamePanel({ addLog }: GamePanelProps) {
       const data = await activeResponse.json()
 
       setCombination(data.combination)
-      setBalance(data.remainingBalance)
       setLastWin(data.isWin)
+      setDepositedBalance(data.remainingBalance)
 
       addLog({
         type: 'transaction',
-        message: `Spin executed! Balance: $${data.remainingBalance.toFixed(2)}`,
+        message: 'Spin executed!',
         txHash: data.txHash,
       })
+
+      if (onRefreshBalance) {
+        window.setTimeout(() => onRefreshBalance(), 500)
+      }
 
       if (data.isWin) {
         addLog({
           type: 'win',
-          message: `🎉 WINNING COMBINATION! You won $10 AlphaUSD!`,
+          message: `🎉 WINNING COMBINATION! You won $100!`,
         })
 
         // Prize transaction included in response
         if (data.prizeTxHash) {
           addLog({
             type: 'prize',
-            message: `✅ Prize of $10 AlphaUSD sent to your account!`,
+            message: `✅ Prize of $100 sent to your account!`,
             txHash: data.prizeTxHash,
           })
+
         } else {
           addLog({
             type: 'error',
@@ -280,7 +292,10 @@ export function GamePanel({ addLog }: GamePanelProps) {
                 Deposited Balance
               </div>
               <div className="text-5xl font-semibold text-neutral-900">
-                ${balance.toFixed(2)}
+                ${new Intl.NumberFormat('en-US', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                }).format(depositedBalance)}
               </div>
             </div>
 
@@ -292,19 +307,22 @@ export function GamePanel({ addLog }: GamePanelProps) {
 
             <AddFundsButtons
               addLog={addLog}
-              onFundsAdded={(amount) => setBalance((prev) => prev + amount)}
+              currentBalance={depositedBalance}
+              onFundsAdded={(totalBalance) => {
+                setDepositedBalance(totalBalance)
+              }}
             />
 
             <button
               onClick={handleSpin}
-              disabled={isSpinning || balance < 1}
+              disabled={isSpinning || depositedBalance < 1}
               className={`w-full py-5 rounded-xl font-semibold text-lg transition-all border ${
-                isSpinning || balance < 1
+                isSpinning || depositedBalance < 1
                   ? 'bg-neutral-200 text-neutral-400 border-neutral-200 cursor-not-allowed'
                   : 'bg-neutral-900 text-white border-neutral-900 hover:bg-neutral-800 hover:border-neutral-800'
               }`}
             >
-              {isSpinning ? 'Spinning…' : balance < 1 ? 'Add funds to spin' : 'Spin ($1)'}
+              {isSpinning ? 'Spinning…' : depositedBalance < 1 ? 'Add funds to spin' : 'Spin ($1)'}
             </button>
 
             {lastWin !== null && (
@@ -315,7 +333,7 @@ export function GamePanel({ addLog }: GamePanelProps) {
                     : 'bg-neutral-50 text-neutral-500 border-neutral-200'
                 }`}
               >
-                {lastWin ? 'You win $10.' : 'No win this time.'}
+                {lastWin ? 'You win $100.' : 'No win this time.'}
               </div>
             )}
           </>

@@ -11,10 +11,21 @@ import { TEMPO_CONFIG } from '@/lib/tempo'
 
 type AddFundsButtonsProps = {
   addLog: (entry: Omit<ActivityLogEntry, 'id' | 'timestamp'>) => void
-  onFundsAdded: (amount: number) => void
+  currentBalance: number
+  onFundsAdded: (totalBalance: number) => void
 }
 
-export function AddFundsButtons({ addLog, onFundsAdded }: AddFundsButtonsProps) {
+type KeyAuthorizationSigner = {
+  signKeyAuthorization: (
+    accessKeyAccount: ReturnType<typeof Account.fromWebCryptoP256>,
+    params: {
+      expiry: number
+      limits: Array<{ token: Address; limit: bigint }>
+    }
+  ) => Promise<ReturnType<typeof KeyAuthorization.from>>
+}
+
+export function AddFundsButtons({ addLog, currentBalance, onFundsAdded }: AddFundsButtonsProps) {
   const { address } = useAccount()
   const { data: walletClient } = useWalletClient()
   const [isAdding, setIsAdding] = useState(false)
@@ -25,9 +36,11 @@ export function AddFundsButtons({ addLog, onFundsAdded }: AddFundsButtonsProps) 
     setIsAdding(true)
 
     try {
+      const totalBalance = currentBalance + amount
+
       addLog({
         type: 'deposit',
-        message: `Creating access key for $${amount}...`,
+        message: `Creating access key for $${totalBalance}...`,
       })
 
       // Get the casino address from backend
@@ -57,8 +70,8 @@ export function AddFundsButtons({ addLog, onFundsAdded }: AddFundsButtonsProps) 
       console.log('Frontend: Access key publicKey:', accessKeyPair.publicKey)
       console.log('Frontend: Access key publicKeyRaw:', publicKeyRaw)
 
-      // Amount in AlphaUSD wei (6 decimals) - must be bigint
-      const amountWei = parseUnits(amount.toString(), 6)
+      // Amount in pathUSD wei (6 decimals) - must be bigint
+      const amountWei = parseUnits(totalBalance.toString(), 6)
 
       addLog({
         type: 'payment',
@@ -74,21 +87,19 @@ export function AddFundsButtons({ addLog, onFundsAdded }: AddFundsButtonsProps) 
         throw new Error('Account does not support key authorization')
       }
 
+      const signer = account as KeyAuthorizationSigner
       const accessKeyAccount = Account.fromWebCryptoP256(accessKeyPair, {
         access: account.address,
       })
-      const keyAuthorization = await (account as any).signKeyAuthorization(
-        accessKeyAccount,
-        {
-          expiry: Math.floor(Date.now() / 1000) + 86400,
-          limits: [
-            {
-              token: TEMPO_CONFIG.alphaUsdAddress as Address,
-              limit: amountWei,
-            },
-          ],
-        }
-      )
+      const keyAuthorization = await signer.signKeyAuthorization(accessKeyAccount, {
+        expiry: Math.floor(Date.now() / 1000) + 86400,
+        limits: [
+          {
+            token: TEMPO_CONFIG.pathUsdAddress as Address,
+            limit: amountWei,
+          },
+        ],
+      })
 
       const keyAuthorizationRpc = KeyAuthorization.toRpc(keyAuthorization)
 
@@ -110,7 +121,7 @@ export function AddFundsButtons({ addLog, onFundsAdded }: AddFundsButtonsProps) 
         body: JSON.stringify(
           {
             address,
-            amount,
+            amount: totalBalance,
             accessKeyPair: serializedKeyPair,
             accessKeyAddress,
             keyAuthorization: keyAuthorizationRpc,
@@ -144,7 +155,7 @@ export function AddFundsButtons({ addLog, onFundsAdded }: AddFundsButtonsProps) 
         message: `✅ Added $${amount} to machine! Balance: $${data.remainingBalance.toFixed(2)}`,
       })
 
-      onFundsAdded(amount)
+      onFundsAdded(data.remainingBalance)
     } catch (error) {
       console.error('Add funds error:', error)
       addLog({

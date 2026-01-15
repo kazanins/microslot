@@ -3,6 +3,12 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { tempoModerato } from './wagmi'
 import { TEMPO_CONFIG } from './tempo'
 
+const rpcUser = process.env.TEMPO_RPC_USER
+const rpcPass = process.env.TEMPO_RPC_PASS
+const rpcHeaders = rpcUser && rpcPass
+  ? { Authorization: `Basic ${Buffer.from(`${rpcUser}:${rpcPass}`).toString('base64')}` }
+  : undefined
+
 // TIP-20 (ERC-20) ABI for transfer function
 const TIP20_ABI = [
   {
@@ -28,7 +34,9 @@ const TIP20_ABI = [
 export function getPublicClient() {
   return createPublicClient({
     chain: tempoModerato,
-    transport: http(),
+    transport: rpcHeaders
+      ? http(TEMPO_CONFIG.rpcUrl, { fetchOptions: { headers: rpcHeaders } })
+      : http(TEMPO_CONFIG.rpcUrl),
   })
 }
 
@@ -44,16 +52,18 @@ export function getCasinoWalletClient() {
   return createWalletClient({
     account,
     chain: tempoModerato,
-    transport: http(),
+    transport: rpcHeaders
+      ? http(TEMPO_CONFIG.rpcUrl, { fetchOptions: { headers: rpcHeaders } })
+      : http(TEMPO_CONFIG.rpcUrl),
   })
 }
 
-// Get AlphaUSD balance
-export async function getAlphaUSDBalance(address: Address): Promise<bigint> {
+// Get pathUSD balance
+export async function getPathUSDBalance(address: Address): Promise<bigint> {
   const publicClient = getPublicClient()
 
   const balance = await publicClient.readContract({
-    address: TEMPO_CONFIG.alphaUsdAddress,
+    address: TEMPO_CONFIG.pathUsdAddress,
     abi: TIP20_ABI,
     functionName: 'balanceOf',
     args: [address],
@@ -62,13 +72,13 @@ export async function getAlphaUSDBalance(address: Address): Promise<bigint> {
   return balance
 }
 
-// Transfer AlphaUSD from casino to user (for prizes)
+// Transfer pathUSD from casino to user (for prizes)
 export async function sendPrizeToUser(userAddress: Address, amountDollars: number): Promise<string> {
   const casinoClient = getCasinoWalletClient()
-  const amount = parseUnits(amountDollars.toString(), TEMPO_CONFIG.alphaUsdDecimals)
+  const amount = parseUnits(amountDollars.toString(), TEMPO_CONFIG.pathUsdDecimals)
 
   const txHash = await casinoClient.writeContract({
-    address: TEMPO_CONFIG.alphaUsdAddress,
+    address: TEMPO_CONFIG.pathUsdAddress,
     abi: TIP20_ABI,
     functionName: 'transfer',
     args: [userAddress, amount],

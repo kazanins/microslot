@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto'
 import { createWalletClient, http, type Address, type WalletClient, publicActions } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { tempoModerato } from './wagmi'
@@ -49,8 +50,7 @@ export function getCasinoClient(): WalletClient {
 
 // Generate a new casino wallet (for initial setup)
 export function generateCasinoWallet() {
-  const crypto = require('crypto')
-  const privateKey = `0x${crypto.randomBytes(32).toString('hex')}` as `0x${string}`
+  const privateKey = `0x${randomBytes(32).toString('hex')}` as `0x${string}`
   const account = privateKeyToAccount(privateKey)
 
   return {

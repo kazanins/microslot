@@ -29,26 +29,17 @@ export async function POST(request: NextRequest) {
       return { ok: response.ok, data }
     }
 
-    const alphaUsd = await requestFaucet('AlphaUSD', 1000)
-    if (!alphaUsd.ok && typeof alphaUsd.data?.message === 'string' && alphaUsd.data.message.includes('replacement')) {
-      // Faucet can return replacement underpriced; retry once after a short delay.
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-    }
-    const alphaUsdFinal = alphaUsd.ok ? alphaUsd : await requestFaucet('AlphaUSD', 1000)
     const pathUsd = await requestFaucet('pathUSD', 1000)
 
-    console.log('Faucet response (AlphaUSD):', alphaUsdFinal.data)
     console.log('Faucet response (pathUSD):', pathUsd.data)
 
-    if (!alphaUsdFinal.ok || !pathUsd.ok) {
-      if (!alphaUsdFinal.ok) console.error('Faucet error (AlphaUSD):', alphaUsdFinal.data)
-      if (!pathUsd.ok) console.error('Faucet error (pathUSD):', pathUsd.data)
+    if (!pathUsd.ok) {
+      console.error('Faucet error (pathUSD):', pathUsd.data)
       return NextResponse.json(
         {
           address,
-          funded: alphaUsdFinal.ok || pathUsd.ok,
-          alphaUsd: alphaUsdFinal.ok,
-          pathUsd: pathUsd.ok,
+          funded: false,
+          pathUsd: false,
         },
         { status: 200 } // Still return 200 as account was created
       )
@@ -57,7 +48,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       address,
       funded: true,
-      alphaUsd: true,
       pathUsd: true,
     })
   } catch (error) {

@@ -9,7 +9,7 @@ type AuthButtonsProps = {
 }
 
 export function AuthButtons({ addLog }: AuthButtonsProps) {
-  const { address, isConnected } = useAccount()
+  const { isConnected } = useAccount()
   const { connectors, connect } = useConnect()
   const { disconnect } = useDisconnect()
   const [mounted, setMounted] = useState(false)
@@ -54,7 +54,7 @@ export function AuthButtons({ addLog }: AuthButtonsProps) {
             try {
               addLog({
                 type: 'deposit',
-                message: 'Requesting $1000 AlphaUSD from faucet...',
+                message: 'Requesting $1000 from faucet...',
               })
 
               const faucetResponse = await fetch('/api/auth/signup', {
@@ -65,18 +65,23 @@ export function AuthButtons({ addLog }: AuthButtonsProps) {
 
               if (faucetResponse.ok) {
                 const faucetData = await faucetResponse.json()
-                if (faucetData.funded) {
-                  addLog({
-                    type: 'deposit',
-                    message: '✅ Account funded with $1000 AlphaUSD!',
-                  })
-                } else {
-                  addLog({
-                    type: 'error',
-                    message: 'Faucet funding request sent but not confirmed',
-                    details: faucetData,
-                  })
-                }
+                  if (faucetData.funded) {
+                    if (typeof window !== 'undefined') {
+                      const storageKey = `microslot-balance:${data.accounts[0].toLowerCase()}`
+                      window.localStorage.setItem(storageKey, '1000')
+                    }
+
+                    addLog({
+                      type: 'deposit',
+                      message: '✅ Account funded with $1000!',
+                    })
+                  } else {
+                    addLog({
+                      type: 'error',
+                      message: 'Faucet funding request sent but not confirmed',
+                      details: faucetData,
+                    })
+                  }
               }
             } catch (error) {
               addLog({

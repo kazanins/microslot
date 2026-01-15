@@ -24,9 +24,6 @@ const sessions = globalForSessions.sessions
 const STORE_ID = Math.random().toString(36).substring(7)
 console.log('[session-store] Module loaded with ID:', STORE_ID)
 
-// Session expires after 24 hours
-const SESSION_EXPIRY = 24 * 60 * 60 * 1000
-
 // Challenge expires after 5 minutes
 const CHALLENGE_EXPIRY = 5 * 60 * 1000
 
@@ -114,7 +111,6 @@ function cleanupExpiredChallenges(address: string): void {
 
 // Cleanup old sessions periodically
 setInterval(() => {
-  const now = Date.now()
   // This is a simple cleanup - in production use proper session management
   console.log(`Sessions in memory: ${sessions.size}`)
 }, 60 * 60 * 1000) // Every hour

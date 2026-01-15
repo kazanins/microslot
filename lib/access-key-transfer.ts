@@ -11,6 +11,66 @@ const rpcHeaders = rpcUser && rpcPass
   ? { Authorization: `Basic ${Buffer.from(`${rpcUser}:${rpcPass}`).toString('base64')}` }
   : undefined
 
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const isRateLimitError = (error: unknown) => {
+  if (!error || typeof error !== 'object') return false
+  const message = 'message' in error ? String(error.message) : ''
+  const details = 'details' in error ? String(error.details) : ''
+  return message.includes('429') || message.includes('too many connections') || details.includes('too many connections')
+}
+
+const RATE_LIMIT_COOLDOWN = 30000
+const rateLimitMap = globalThis as unknown as {
+  microslotRateLimit?: Map<string, number>
+}
+const transferLocks = globalThis as unknown as {
+  microslotTransferLocks?: Map<string, Promise<void>>
+}
+
+if (!rateLimitMap.microslotRateLimit) {
+  rateLimitMap.microslotRateLimit = new Map()
+}
+
+if (!transferLocks.microslotTransferLocks) {
+  transferLocks.microslotTransferLocks = new Map()
+}
+
+const markRateLimit = (key: string) => {
+  rateLimitMap.microslotRateLimit?.set(key, Date.now())
+}
+
+const isInRateLimitCooldown = (key: string) => {
+  const last = rateLimitMap.microslotRateLimit?.get(key)
+  return !!last && Date.now() - last < RATE_LIMIT_COOLDOWN
+}
+
+const withRetry = async <T>(
+  fn: () => Promise<T>,
+  retries = 5,
+  baseDelay = 400,
+  rateLimitKey?: string
+): Promise<T> => {
+  let lastError: unknown
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error
+      if (!isRateLimitError(error) || attempt === retries) {
+        throw error
+      }
+      if (rateLimitKey) {
+        markRateLimit(rateLimitKey)
+      }
+      await wait(baseDelay * (attempt + 1))
+    }
+  }
+
+  throw lastError
+}
+
 /**
  * Execute a transfer using an access key
  * This allows the casino to pull funds from the user's account
@@ -38,8 +98,9 @@ export async function getAccessKeyTransferContext(
   )
 
   const chainWithFeeToken = {
-    ...tempoModerato,
-    feeToken: TEMPO_CONFIG.alphaUsdAddress,
+      ...tempoModerato,
+      feeToken: TEMPO_CONFIG.pathUsdAddress,
+
   } as const
 
   const rpcTransport = rpcHeaders
@@ -85,7 +146,7 @@ export async function getRemainingAccessKeyLimit(
     address: keychainAddress,
     abi: Abis.accountKeychain,
     functionName: 'getRemainingLimit',
-    args: [userAddress, context.accessKeyAddress, TEMPO_CONFIG.alphaUsdAddress],
+    args: [userAddress, context.accessKeyAddress, TEMPO_CONFIG.pathUsdAddress],
   })
 }
 
@@ -105,117 +166,148 @@ export async function executeAccessKeyTransfer(
     console.log('  toAddress:', toAddress)
     console.log('  amount:', amountDollars)
 
-    const { publicClient, accessKeyAccount, accessKeyAddress } = await getAccessKeyTransferContext(
-      accessKeyPair,
-      userAddress
-    )
-
-    if (!keyAuthorization) {
-      const keyInfo = await publicClient.readContract({
-        address: getAddress('0xaaaaaaaa00000000000000000000000000000000'),
-        abi: Abis.accountKeychain,
-        functionName: 'getKey',
-        args: [userAddress, accessKeyAddress],
-      })
-
-      console.log('  Access key on-chain status:', keyInfo)
-
-      if (keyInfo.keyId === zeroAddress || keyInfo.isRevoked) {
-        throw new Error('Access key not found or revoked on-chain')
-      }
+    const rateLimitKey = userAddress.toLowerCase()
+    const existingLock = transferLocks.microslotTransferLocks?.get(rateLimitKey)
+    if (existingLock) {
+      await existingLock
     }
 
-    const accessKeyClient = createWalletClient({
-      account: accessKeyAccount,
-      chain: {
-        ...tempoModerato,
-        feeToken: TEMPO_CONFIG.alphaUsdAddress,
-      },
-      transport: rpcHeaders
-        ? http(TEMPO_CONFIG.rpcUrl, { fetchOptions: { headers: rpcHeaders } })
-        : http(TEMPO_CONFIG.rpcUrl),
+    let releaseLock: (() => void) | undefined
+    const lockPromise = new Promise<void>((resolve) => {
+      releaseLock = resolve
     })
-
-    console.log('  Access key account created:')
-    console.log('    - Address:', accessKeyAccount.address)
-    console.log('    - Type:', accessKeyAccount.type)
-    console.log('    - Source: accessKey')
-
-    // Create a TIP-20 transfer transaction
-    const amount = parseUnits(amountDollars.toString(), TEMPO_CONFIG.alphaUsdDecimals)
-    console.log(`Transferring ${amountDollars} AlphaUSD (${amount} wei) from ${userAddress} to ${toAddress}`)
-
-    console.log('Executing access-key transfer...')
-
-    const normalizedKeyAuthorization = keyAuthorization
-      ? KeyAuthorization.from({
-          address: keyAuthorization.keyId,
-          type: keyAuthorization.keyType,
-          signature: SignatureEnvelope.fromRpc(keyAuthorization.signature),
-          ...(keyAuthorization.chainId && keyAuthorization.chainId !== '0x'
-            ? { chainId: BigInt(keyAuthorization.chainId) }
-            : {}),
-          ...(keyAuthorization.expiry && keyAuthorization.expiry !== '0x' && keyAuthorization.expiry !== '0x0'
-            ? { expiry: Number(keyAuthorization.expiry) }
-            : {}),
-          ...(keyAuthorization.limits
-            ? {
-                limits: keyAuthorization.limits.map((limit) => ({
-                  token: limit.token,
-                  limit: BigInt(limit.limit),
-                })),
-              }
-            : {}),
-        })
-      : undefined
-
-    const transferCall = Actions.token.transfer.call({
-      amount,
-      to: toAddress,
-      token: TEMPO_CONFIG.alphaUsdAddress,
-    })
-
-    let gasEstimate: bigint | null = null
+    transferLocks.microslotTransferLocks?.set(rateLimitKey, lockPromise)
 
     try {
-      gasEstimate = await publicClient.estimateContractGas({
-        ...transferCall,
+      const { publicClient, accessKeyAccount, accessKeyAddress } = await getAccessKeyTransferContext(
+        accessKeyPair,
+        userAddress
+      )
+
+      if (!keyAuthorization) {
+        const keyInfo = await publicClient.readContract({
+          address: getAddress('0xaaaaaaaa00000000000000000000000000000000'),
+          abi: Abis.accountKeychain,
+          functionName: 'getKey',
+          args: [userAddress, accessKeyAddress],
+        })
+
+        console.log('  Access key on-chain status:', keyInfo)
+
+        if (keyInfo.keyId === zeroAddress || keyInfo.isRevoked) {
+          throw new Error('Access key not found or revoked on-chain')
+        }
+      }
+
+      const accessKeyClient = createWalletClient({
         account: accessKeyAccount,
-        feeToken: TEMPO_CONFIG.alphaUsdAddress,
+        chain: {
+          ...tempoModerato,
+          feeToken: TEMPO_CONFIG.pathUsdAddress,
+        },
+        transport: rpcHeaders
+          ? http(TEMPO_CONFIG.rpcUrl, { fetchOptions: { headers: rpcHeaders } })
+          : http(TEMPO_CONFIG.rpcUrl),
+      })
+
+      console.log('  Access key account created:')
+      console.log('    - Address:', accessKeyAccount.address)
+      console.log('    - Type:', accessKeyAccount.type)
+      console.log('    - Source: accessKey')
+
+      // Create a TIP-20 transfer transaction
+      const amount = parseUnits(amountDollars.toString(), TEMPO_CONFIG.pathUsdDecimals)
+      console.log(`Transferring ${amountDollars} pathUSD (${amount} wei) from ${userAddress} to ${toAddress}`)
+
+      console.log('Executing access-key transfer...')
+
+      const normalizedKeyAuthorization = keyAuthorization
+        ? KeyAuthorization.from({
+            address: keyAuthorization.keyId,
+            type: keyAuthorization.keyType,
+            signature: SignatureEnvelope.fromRpc(keyAuthorization.signature),
+            ...(keyAuthorization.chainId && keyAuthorization.chainId !== '0x'
+              ? { chainId: BigInt(keyAuthorization.chainId) }
+              : {}),
+            ...(keyAuthorization.expiry && keyAuthorization.expiry !== '0x' && keyAuthorization.expiry !== '0x0'
+              ? { expiry: Number(keyAuthorization.expiry) }
+              : {}),
+            ...(keyAuthorization.limits
+              ? {
+                  limits: keyAuthorization.limits.map((limit) => ({
+                    token: limit.token,
+                    limit: BigInt(limit.limit),
+                  })),
+                }
+              : {}),
+          })
+        : undefined
+
+      const transferCall = Actions.token.transfer.call({
+        amount,
+        to: toAddress,
+        token: TEMPO_CONFIG.pathUsdAddress,
+      })
+
+      let gasEstimate: bigint | null = null
+
+      if (isInRateLimitCooldown(rateLimitKey)) {
+        console.warn('  Skipping gas estimate due to rate-limit cooldown')
+      } else {
+        try {
+          const estimateParams = {
+            ...transferCall,
+            account: accessKeyAccount,
+            feeToken: TEMPO_CONFIG.pathUsdAddress,
+            keyAuthorization: normalizedKeyAuthorization,
+          } as unknown as Parameters<typeof publicClient.estimateContractGas>[0]
+          gasEstimate = await publicClient.estimateContractGas(estimateParams)
+        } catch (error) {
+          if (isRateLimitError(error)) {
+            markRateLimit(rateLimitKey)
+          }
+          console.warn('  Gas estimate failed, using fallback limit:', error)
+        }
+      }
+
+      const gasFloor = BigInt(300000)
+      const gasLimit = gasEstimate ? gasEstimate * BigInt(3) : gasFloor
+      const finalGasLimit = gasLimit > gasFloor ? gasLimit : gasFloor
+      console.log(
+        '  Gas limit:',
+        finalGasLimit.toString(),
+        gasEstimate ? `(estimate ${gasEstimate.toString()})` : '(fallback)'
+      )
+
+      const transferParams = {
+        account: accessKeyAccount,
+        amount,
+        to: toAddress,
+        token: TEMPO_CONFIG.pathUsdAddress,
+        feeToken: TEMPO_CONFIG.pathUsdAddress,
         keyAuthorization: normalizedKeyAuthorization,
-      } as any)
-    } catch (error) {
-      console.warn('  Gas estimate failed, using fallback limit:', error)
+        gas: finalGasLimit,
+      } as unknown as Parameters<typeof Actions.token.transfer>[1]
+
+      const txHash = await withRetry(
+        () => Actions.token.transfer(accessKeyClient, transferParams),
+        5,
+        400,
+        rateLimitKey
+      )
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+
+      if (receipt.status && receipt.status !== 'success') {
+        throw new Error(`Spin transfer reverted: ${receipt.status}`)
+      }
+
+      console.log('✅ Transfer executed! TX:', receipt.transactionHash)
+      return receipt.transactionHash
+    } finally {
+      releaseLock?.()
+      transferLocks.microslotTransferLocks?.delete(rateLimitKey)
     }
-
-    const gasFloor = BigInt(300000)
-    const gasLimit = gasEstimate ? gasEstimate * BigInt(3) : gasFloor
-    const finalGasLimit = gasLimit > gasFloor ? gasLimit : gasFloor
-    console.log(
-      '  Gas limit:',
-      finalGasLimit.toString(),
-      gasEstimate ? `(estimate ${gasEstimate.toString()})` : '(fallback)'
-    )
-
-    const txHash = await Actions.token.transfer(accessKeyClient, {
-      account: accessKeyAccount,
-      amount,
-      to: toAddress,
-      token: TEMPO_CONFIG.alphaUsdAddress,
-      feeToken: TEMPO_CONFIG.alphaUsdAddress,
-      keyAuthorization: normalizedKeyAuthorization,
-      gas: finalGasLimit,
-    } as any)
-
-    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
-
-    if (receipt.status && receipt.status !== 'success') {
-      throw new Error(`Spin transfer reverted: ${receipt.status}`)
-    }
-
-    console.log('✅ Transfer executed! TX:', receipt.transactionHash)
-    return receipt.transactionHash
-
   } catch (error) {
     console.error('❌ Access key transfer failed:', error)
     throw error

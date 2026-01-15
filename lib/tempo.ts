@@ -5,19 +5,19 @@ export const TEMPO_CONFIG = {
   chainId: 42431,
   rpcUrl: process.env.NEXT_PUBLIC_TEMPO_RPC_URL || 'https://rpc.moderato.tempo.xyz',
   explorerUrl: process.env.NEXT_PUBLIC_TEMPO_EXPLORER || 'https://explore.tempo.xyz',
-  alphaUsdAddress: (process.env.NEXT_PUBLIC_ALPHA_USD_ADDRESS || '0x20c0000000000000000000000000000000000001') as Address,
-  alphaUsdDecimals: 6, // AlphaUSD uses 6 decimals
+  pathUsdAddress: (process.env.NEXT_PUBLIC_PATH_USD_ADDRESS || '0x20c0000000000000000000000000000000000000') as Address,
+  pathUsdDecimals: 6,
   faucetUrl: process.env.FAUCET_URL || 'https://tiny-faucet.up.railway.app/api/fund',
 } as const
 
-// Helper to convert dollar amounts to AlphaUSD wei
-export function dollarsToAlphaUSD(dollars: number): bigint {
-  return parseUnits(dollars.toString(), TEMPO_CONFIG.alphaUsdDecimals)
+// Helper to convert dollar amounts to pathUSD wei
+export function dollarsToPathUSD(dollars: number): bigint {
+  return parseUnits(dollars.toString(), TEMPO_CONFIG.pathUsdDecimals)
 }
 
-// Helper to format AlphaUSD wei to dollar display
-export function alphaUSDToDollars(wei: bigint): number {
-  return Number(wei) / 10 ** TEMPO_CONFIG.alphaUsdDecimals
+// Helper to format pathUSD wei to dollar display
+export function pathUSDToDollars(wei: bigint): number {
+  return Number(wei) / 10 ** TEMPO_CONFIG.pathUsdDecimals
 }
 
 // Helper to get transaction explorer URL

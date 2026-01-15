@@ -31,7 +31,7 @@ export function createPaymentChallenge(challengeData: {
   const challengeId = generateChallengeId()
   const amountWei = parseUnits(
     challengeData.amount.toString(),
-    TEMPO_CONFIG.alphaUsdDecimals
+    TEMPO_CONFIG.pathUsdDecimals
   )
   const validBefore = BigInt(
     Math.floor(Date.now() / 1000) + (challengeData.validForSeconds ?? 120)

@@ -24,7 +24,7 @@ export function ActivityLog({ logs }: { logs: ActivityLogEntry[] }) {
     }
   }
 
-  const getLogIcon = (_type: ActivityLogEntry['type']): string => '•'
+  const getLogIcon = (): string => '•'
 
   return (
     <div className="h-full flex flex-col bg-white border-l border-neutral-200">
@@ -45,7 +45,7 @@ export function ActivityLog({ logs }: { logs: ActivityLogEntry[] }) {
           logs.map((log) => (
             <div key={log.id} className="bg-white p-4 rounded-xl border border-neutral-200">
               <div className="flex items-start gap-3">
-                <span className="text-base text-neutral-400">{getLogIcon(log.type)}</span>
+                <span className="text-base text-neutral-400">{getLogIcon()}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-2 flex-wrap">
                     <span className="text-xs text-neutral-400">

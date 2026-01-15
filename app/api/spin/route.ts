@@ -11,7 +11,7 @@ import { executeAccessKeyTransfer, getAccessKeyTransferContext, getRemainingAcce
 import type { AccessKeySession } from '@/types'
 
 const SPIN_COST = 1 // $1 per spin
-const PRIZE_AMOUNT = 10 // $10 per win
+const PRIZE_AMOUNT = 100 // $100 per win
 
 function createPaymentMessage(challengeId: string, request: string) {
   return `microslot:${challengeId}:${request}`
@@ -50,7 +50,7 @@ function return402PaymentRequired(userAddress: string) {
   const challenge = createPaymentChallenge({
     to: getCasinoAddress(),
     amount: SPIN_COST,
-    token: TEMPO_CONFIG.alphaUsdAddress,
+    token: TEMPO_CONFIG.pathUsdAddress,
   })
 
   storeChallenge(userAddress, challenge)
@@ -146,7 +146,7 @@ function return401PaymentRequired(userAddress: string, code: string, message: st
   const challenge = createPaymentChallenge({
     to: getCasinoAddress(),
     amount: SPIN_COST,
-    token: TEMPO_CONFIG.alphaUsdAddress,
+    token: TEMPO_CONFIG.pathUsdAddress,
   })
 
   storeChallenge(userAddress, challenge)
@@ -172,8 +172,8 @@ async function executeSpin(userAddress: string, accessKey: AccessKeySession) {
   let spinTxHash: `0x${string}`
   let newBalance = accessKey.remainingBalance
 
-  const spinCostWei = parseUnits(SPIN_COST.toString(), TEMPO_CONFIG.alphaUsdDecimals)
-  const feeBufferWei = parseUnits('0.01', TEMPO_CONFIG.alphaUsdDecimals)
+  const spinCostWei = parseUnits(SPIN_COST.toString(), TEMPO_CONFIG.pathUsdDecimals)
+  const feeBufferWei = parseUnits('0.01', TEMPO_CONFIG.pathUsdDecimals)
 
   try {
     let remainingLimitWei: bigint | null = null
@@ -193,7 +193,7 @@ async function executeSpin(userAddress: string, accessKey: AccessKeySession) {
     }
 
     if (remainingLimitWei !== null) {
-      const remainingLimitDollars = Number(remainingLimitWei) / 10 ** TEMPO_CONFIG.alphaUsdDecimals
+      const remainingLimitDollars = Number(remainingLimitWei) / 10 ** TEMPO_CONFIG.pathUsdDecimals
       newBalance = Math.min(accessKey.remainingBalance, remainingLimitDollars)
       updateBalance(userAddress, newBalance)
 
@@ -213,7 +213,7 @@ async function executeSpin(userAddress: string, accessKey: AccessKeySession) {
     console.log(`💸 Executing REAL on-chain transfer of $${SPIN_COST} from user to casino...`)
 
     // Execute REAL on-chain transfer using the access key
-    // This pulls $1 AlphaUSD from user's account to casino
+    // This pulls $1 pathUSD from user's account to casino
     spinTxHash = (await executeAccessKeyTransfer(
       accessKey.accessKeyPair,
       getCasinoAddress(),
@@ -245,7 +245,7 @@ async function executeSpin(userAddress: string, accessKey: AccessKeySession) {
   // If win, send real prize!
   if (isWin) {
     try {
-      console.log(`🎉 User ${userAddress} won! Sending $${PRIZE_AMOUNT} AlphaUSD prize...`)
+      console.log(`🎉 User ${userAddress} won! Sending $${PRIZE_AMOUNT} prize...`)
 
       // Send REAL on-chain transfer from casino to winner
       prizeTxHash = await sendPrizeToUser(userAddress as `0x${string}`, PRIZE_AMOUNT)
