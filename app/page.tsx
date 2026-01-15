@@ -60,12 +60,12 @@ export default function Home() {
     return data.balance
   }, [])
 
-  const refreshBalance = useCallback(async (): Promise<void> => {
+  const refreshBalance = useCallback(async (txHash?: `0x${string}`): Promise<void> => {
     if (!address || isRefreshing) return
 
     setIsRefreshing(true)
     try {
-      await fetchOnChainBalance(address)
+      await fetchOnChainBalance(address, txHash)
     } finally {
       setIsRefreshing(false)
     }
@@ -116,7 +116,7 @@ export default function Home() {
               </span>
               <button
                 type="button"
-                onClick={refreshBalance}
+                onClick={() => refreshBalance()}
                 disabled={!mounted || isRefreshing || !address}
                 className={`text-[10px] uppercase tracking-[0.25em] border px-2 py-1 rounded-full transition ${
                   !mounted || isRefreshing || !address

@@ -12,7 +12,7 @@ import type { ActivityLogEntry, SlotSymbol } from '@/types'
 
 type GamePanelProps = {
   addLog: (entry: Omit<ActivityLogEntry, 'id' | 'timestamp'>) => void
-  onRefreshBalance?: () => void
+  onRefreshBalance?: (txHash?: `0x${string}`) => void
 }
 
 type PaymentChallenge = {
@@ -234,23 +234,26 @@ export function GamePanel({ addLog, onRefreshBalance }: GamePanelProps) {
       })
 
       if (onRefreshBalance) {
-        window.setTimeout(() => onRefreshBalance(), 500)
+        window.setTimeout(() => onRefreshBalance(data.txHash), 500)
       }
 
       if (data.isWin) {
         addLog({
           type: 'win',
-          message: `🎉 WINNING COMBINATION! You won $100!`,
+          message: `🎉 WINNING COMBINATION! You won $1000!`,
         })
 
         // Prize transaction included in response
         if (data.prizeTxHash) {
           addLog({
             type: 'prize',
-            message: `✅ Prize of $100 sent to your account!`,
+            message: `✅ Prize of $1000 sent to your account!`,
             txHash: data.prizeTxHash,
           })
 
+          if (onRefreshBalance) {
+            window.setTimeout(() => onRefreshBalance(data.prizeTxHash), 500)
+          }
         } else {
           addLog({
             type: 'error',
@@ -333,7 +336,7 @@ export function GamePanel({ addLog, onRefreshBalance }: GamePanelProps) {
                     : 'bg-neutral-50 text-neutral-500 border-neutral-200'
                 }`}
               >
-                {lastWin ? 'You win $100.' : 'No win this time.'}
+                {lastWin ? 'You win $1000.' : 'No win this time.'}
               </div>
             )}
           </>

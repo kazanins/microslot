@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sendPrizeToUser } from '@/lib/tempo-transfers'
 
-const PRIZE_AMOUNT = 100 // $100 prize (pathUSD)
+const PRIZE_AMOUNT = 1000 // $1000 prize (pathUSD)
 
 export async function POST(request: NextRequest) {
   try {

@@ -11,7 +11,7 @@ import { executeAccessKeyTransfer, getAccessKeyTransferContext, getRemainingAcce
 import type { AccessKeySession } from '@/types'
 
 const SPIN_COST = 1 // $1 per spin
-const PRIZE_AMOUNT = 100 // $100 per win
+const PRIZE_AMOUNT = 1000 // $1000 per win
 
 function createPaymentMessage(challengeId: string, request: string) {
   return `microslot:${challengeId}:${request}`
